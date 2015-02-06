@@ -1,0 +1,78 @@
+//Modified from here: https://t.co/LQpRx2GWHA - to add different weather fields and modified from Hogan version (https://gist.github.com/ChrisCarto/16cf299be11a30b53f3e).
+ 
+ //Update your Nest credentials here. Replace with your email address and nest password but keep quotes.
+var nestUsername = "email@address.com",
+    nestPassword = "password",
+    latitude = 38.8094095,
+    longitude = -77.1197905;
+ 
+function performLogin(email, password) {
+  var payload = {
+    "username" : email,
+    "password" : password
+  };
+  
+  var options = {
+    "method"  : "post",
+    "payload" : payload
+  };
+ 
+  var response = JSON.parse(UrlFetchApp.fetch('https://home.nest.com/user/login', options).getContentText());
+  if ('error' in response) {
+    throw "Invalid login credentials";
+  }
+  
+  return response
+}
+ 
+function getData() {
+  var login_auth = performLogin(nestUsername, nestPassword);
+             
+  var headers = {
+    "Authorization" : 'Basic '+login_auth['access_token'],
+    "X-nl-user-id"  : login_auth['userid'],
+    "X-nl-protocol-version" : '1',
+    'Accept-Language': 'en-us',
+    'Connection'    : 'keep-alive',
+    'Accept'        : '*/*',
+  };
+  
+  var options = {
+    'headers' : headers
+  };
+  
+  var request=UrlFetchApp.fetch(login_auth['urls']['transport_url']+'/v2/mobile/user.'+login_auth['userid'], options);
+  var result=JSON.parse(request.getContentText());
+ 
+  var structure_id = result['user'][login_auth['userid']]['structures'][0].split('.')[1]
+  var device_id    = result['structure'][structure_id]['devices'][0].split('.')[1]
+ 
+ //Nest temps comes as Celcius, this converts to F
+  var current_temp = (result["shared"][device_id]["current_temperature"] * 1.8) + 32;
+  var target_temp  = (result["shared"][device_id]["target_temperature"] * 1.8) + 32;
+  var humidity     = result["device"][device_id]["current_humidity"]/100;
+  var heater_state = result["shared"][device_id]["hvac_heater_state"];
+  
+  Logger.log("Current Temp: "+current_temp+", Target Temp: "+ target_temp +", Humidity: "+ humidity*100 + "%" );
+  var time = new Date();
+  
+  //this grabs data from openweathermap and adds it to the Nest data in sheets
+  var wxrequest=UrlFetchApp.fetch('http://api.openweathermap.org/data/2.5/weather?lat='+latitude+'&lon='+longitude);
+  var wxresult=JSON.parse(wxrequest.getContentText());
+  
+  //outside temp is recorded in kevlin and convereted to f
+  var outside_temp = ((wxresult["main"]["temp"] - 273)* 1.8000 + 32.00);
+  var outside_humidity = (wxresult["main"]["humidity"]/100);
+  
+  //pressure is recorded in mm of mercury and recorded in inches
+  var pressure = (wxresult["main"]["pressure"]*0.0295301);
+  var weather = (wxresult["weather"][0]["main"]);
+  var outside_clouds = (wxresult["clouds"]["all"]/100);
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheets()[0];
+ 
+  // Appends a new row with 3 columns to the bottom of the
+  // spreadsheet containing the values in the array
+  sheet.appendRow( [ time, current_temp, target_temp, humidity, heater_state, outside_temp, outside_humidity, pressure, weather, outside_clouds ] );
+}
